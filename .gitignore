@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# raw generated data
+data/
+
+# Dagster temp local state dir
+.tmp_dagster_home_*/
