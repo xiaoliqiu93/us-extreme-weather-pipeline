@@ -1,3 +1,4 @@
+import calendar
 from pathlib import Path
 
 import dagster as dg
@@ -30,7 +31,10 @@ def raw_weather(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
         )
 
         df = fetch_weather(
-            **city,
+            city=city["city"],
+            state=city["state"],
+            latitude=city["latitude"],
+            longitude=city["longitude"],
             start_date=f"{year}-01-01",
             end_date=f"{year}-12-31",
         )
@@ -83,22 +87,63 @@ def raw_weather_not_empty(
 def raw_weather_all_cities_present(
     context: dg.AssetCheckExecutionContext,
 ) -> dg.AssetCheckResult:
-    """Check that all configured cities are present in the raw weather data."""
+    """Check that all configured city/state locations are present."""
 
     year = context.partition_key
 
     weather = pd.read_parquet(get_weather_path(year))
 
-    expected_cities = {city["city"] for city in CITIES}
-    actual_cities = set(weather["city"].unique())
+    expected_locations = {
+        (city["city"], city["state"])
+        for city in CITIES
+    }
 
-    missing_cities = expected_cities - actual_cities
+    actual_locations = set(
+        weather[["city", "state"]].itertuples(index=False, name=None)
+    )
+
+    missing_locations = expected_locations - actual_locations
 
     return dg.AssetCheckResult(
-        passed=len(missing_cities) == 0,
+        passed=len(missing_locations) == 0,
         metadata={
-            "expected_city_count": len(expected_cities),
-            "actual_city_count": len(actual_cities),
-            "missing_cities": sorted(missing_cities),
+            "expected_location_count": len(expected_locations),
+            "actual_location_count": len(actual_locations),
+            "missing_locations": [
+                f"{city}, {state}"
+                for city, state in sorted(missing_locations)
+            ],
+        },
+    )
+
+@dg.asset_check(
+    asset=raw_weather,
+    name="hourly_completeness",
+)
+def raw_weather_hourly_completeness(
+    context: dg.AssetCheckExecutionContext,
+) -> dg.AssetCheckResult:
+    """Check that every city has the expected number of hourly records."""
+
+    year = int(context.partition_key)
+
+    weather = pd.read_parquet(get_weather_path(str(year)))
+
+    days_in_year = 366 if calendar.isleap(year) else 365
+    expected_rows_per_city = days_in_year * 24
+
+    rows_per_location = weather.groupby(["city", "state"]).size()
+
+    incomplete_locations = {
+        f"{city}, {state}": int(row_count)
+        for (city, state), row_count in rows_per_location.items()
+        if row_count != expected_rows_per_city
+    }
+
+    return dg.AssetCheckResult(
+        passed=len(incomplete_locations) == 0,
+        metadata={
+            "expected_rows_per_location": expected_rows_per_city,
+            "incomplete_locations": incomplete_locations,
         },
     )
