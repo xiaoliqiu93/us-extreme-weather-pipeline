@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -15,8 +16,16 @@ REQUIRED_COLUMNS = {
 }
 
 
+def make_location_id(city: str, state: str) -> str:
+    """Create a deterministic location ID from city and state."""
+    city_slug = re.sub(r"[^a-z0-9]+", "_", city.strip().lower()).strip("_")
+    state_slug = state.strip().lower()
+
+    return f"{city_slug}_{state_slug}"
+
+
 def load_cities() -> list[dict]:
-    """Load and validate city configuration."""
+    """Load, validate, and enrich the city configuration."""
 
     cities = pd.read_csv(CITIES_PATH)
 
@@ -42,6 +51,14 @@ def load_cities() -> list[dict]:
 
     if not cities["longitude"].between(-180, 180).all():
         raise ValueError("cities.csv contains invalid longitude values")
+
+    cities["location_id"] = cities.apply(
+        lambda row: make_location_id(row["city"], row["state"]),
+        axis=1,
+    )
+
+    if cities["location_id"].duplicated().any():
+        raise ValueError("Generated location_id values are not unique")
 
     return cities.to_dict(orient="records")
 

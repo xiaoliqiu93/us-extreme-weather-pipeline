@@ -18,6 +18,7 @@ HOURLY_VARIABLES = [
 
 
 def fetch_weather(
+    location_id: str,
     city: str,
     state: str,
     latitude: float,
@@ -46,7 +47,8 @@ def fetch_weather(
     df = pd.DataFrame(data["hourly"])
 
     df["time"] = pd.to_datetime(df["time"])
-
+    
+    df["location_id"] = location_id
     df["city"] = city
     df["state"] = state
 
